@@ -1,0 +1,357 @@
+#include "MainWindow.h"
+#include <QLabel>
+#include <QDebug>
+#include <QVBoxLayout>
+#include <opencv2/imgproc.hpp>
+#include <QGraphicsDropShadowEffect>
+
+
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
+
+	setupUi();
+	setupCamera();
+}
+
+MainWindow::~MainWindow() {
+	if (videoCapture.isOpened()) {
+		videoCapture.release();
+	}
+}
+
+void MainWindow::setupUi() {
+	// 设置主窗口背景为iOS风格浅色调
+	centralWidget = new QWidget(this);
+	centralWidget->setStyleSheet("background-color: #F5F5F7;");  // iOS系统灰色背景
+	setCentralWidget(centralWidget);
+
+	mainLayout = new QHBoxLayout(centralWidget);
+	mainLayout->setContentsMargins(20, 20, 20, 20);  // 增加外围边距
+	mainLayout->setSpacing(20);  // 增加组件间距
+
+	leftPanel = new QWidget();
+	leftPanelLayout = new QVBoxLayout(leftPanel);
+	leftPanelLayout->setContentsMargins(0, 0, 0, 0);
+	leftPanelLayout->setSpacing(15);  // 组件间距调整
+
+	//分隔
+	downContainer = new QWidget();
+	downContainer->setStyleSheet("background: transparent; border: none;"); // 透明背景，无边框
+	downLayout = new QHBoxLayout(downContainer);
+	downLayout->setContentsMargins(0, 0, 0, 0);
+	downLayout->setSpacing(15); // 两个子组件之间的间隔
+
+	edgeDisplay = new QLabel();
+	edgeDisplay->setStyleSheet(
+		"background: white;"
+		"border-radius: 12px;"
+		"padding: 12px;"
+		"font-size: 16px;"
+		"color: #8E8E93;"
+		"border: none;"
+		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"
+	);
+	edgeDisplay->setMinimumHeight(100);
+
+	cameraDisplay = new QLabel();
+	cameraDisplay->setStyleSheet(
+		"background: white;"
+		"border-radius: 12px;"
+		"padding: 12px;"
+		"font-size: 16px;"
+		"color: #8E8E93;"
+		"border: none;"
+		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);");
+	cameraDisplay->setMinimumHeight(100);
+
+	downLayout->addWidget(edgeDisplay);
+	downLayout->addWidget(cameraDisplay);
+
+
+	//右上的追踪画面
+	mainDisplay = new QLabel();
+	mainDisplay->setMinimumSize(640, 480);
+	mainDisplay->setAlignment(Qt::AlignCenter);
+	mainDisplay->setStyleSheet(
+		"background: white;"
+		"border-radius: 12px;"       // 圆角效果
+		"padding: 8px;"
+		"font-size: 18px;"
+		"font-weight: 500;"
+		"color: #8E8E93;"            // iOS辅助文本色
+		"border: none;"
+		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"  // 柔和阴影
+	);
+
+	// 添加到左侧布局
+	leftPanelLayout->addWidget(mainDisplay);
+	leftPanelLayout->addWidget(downContainer);
+
+
+	 // 右侧面板 - iOS控制台样式
+	 QWidget* rightPanel = new QWidget();
+	 rightPanel->setStyleSheet(
+	     "background: #FFFFFF;"
+	     "border-radius: 12px;"
+	     "box-shadow: 0 4px 15px rgba(0,0,0,0.08);"
+	     );
+	 QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
+	 rightLayout->setContentsMargins(20, 20, 20, 20);
+
+	 // 添加示例控制元素
+	 QLabel* controlsTitle = new QLabel("EDGE SETTINGS");
+	 controlsTitle->setStyleSheet("font-size: 20px; font-weight: 600; color: #000000;");
+	 controlsTitle->setAlignment(Qt::AlignCenter);
+
+	 // 示例滑块控件
+	 QSlider* thresholdSlider = new QSlider(Qt::Horizontal);
+	 thresholdSlider->setStyleSheet(
+	     "QSlider::groove:horizontal {"
+	     "   height: 6px;"
+	     "   background: #E0E0E0;"
+	     "   border-radius: 3px;"
+	     "}"
+	     "QSlider::handle:horizontal {"
+	     "   background: #007AFF;"   // iOS系统蓝色
+	     "   width: 22px;"
+	     "   height: 22px;"
+	     "   margin: -8px 0;"
+	     "   border-radius: 11px;"
+	     "}"
+	     );
+
+	 rightLayout->addWidget(controlsTitle);
+	 rightLayout->addSpacing(15);
+	 rightLayout->addWidget(new QLabel("Edge Threshold:"));
+	 rightLayout->addWidget(thresholdSlider);
+	 rightLayout->addStretch();  // 弹性空间
+
+	// // 添加到主布局
+	mainLayout->addWidget(leftPanel, 7);
+	 mainLayout->addWidget(rightPanel, 3);
+}
+
+
+void MainWindow::setupCamera() {
+
+	try {
+		//摄像头index
+		videoCapture.open(0);
+
+		if (!videoCapture.isOpened()) {
+			qDebug() << "Camera not turned on";
+			cameraDisplay->setText("Camera not available");
+
+			return;
+		}
+
+		//定时器设置
+		frameTimer = new QTimer(this);
+		connect(frameTimer, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
+		frameTimer->start(33); //30帧/秒
+	}
+	catch (const std::exception& e) {
+		qDebug() << "Camera initialization error：" << e.what();
+		cameraDisplay->setText("Camera error");
+	}
+}
+
+
+void MainWindow::updateCameraFrame() {
+	cv::Mat frame;
+	if (videoCapture.read(frame)) {
+		//qDebug() << "!!!!!!!!!!";
+		cv::Mat rgbFrame;
+		cv::cvtColor(frame, rgbFrame, cv::COLOR_BGR2RGB);
+		QImage origImg = cvMatToQImage(rgbFrame);
+
+		// 显示原始图像
+		cameraDisplay->setPixmap(QPixmap::fromImage(origImg)
+			.scaled(cameraDisplay->width(),
+				cameraDisplay->height(),
+				Qt::KeepAspectRatio));
+
+		// 边缘检测 
+		cv::Mat edges = detectEdges(frame);
+
+		cv::Mat colorEdges;
+		cv::cvtColor(edges, colorEdges, cv::COLOR_GRAY2BGR);
+		cv::bitwise_and(rgbFrame, colorEdges, colorEdges);
+
+		// 显示边缘图像
+		QImage edgeImg = cvMatToQImage(colorEdges);
+		edgeDisplay->setPixmap(QPixmap::fromImage(edgeImg)
+			.scaled(edgeDisplay->width(),
+				edgeDisplay->height(),
+				Qt::KeepAspectRatio));		//自适应缩放
+
+		cv::Mat gray;
+		cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+
+		// 创建结果图像（在原始帧上绘制）
+		cv::Mat result = frame.clone();
+
+		// 静态变量保持跟踪状态
+		static std::vector<cv::Point2f> trackedPoints;
+		static cv::Mat prevGray;
+		
+
+		 //初始检测或当点过少时重新检测
+		if (trackedPoints.empty() || trackedPoints.size() < 5)	//5个好像有点太少了
+		{
+
+			trackedPoints.clear();
+			
+			//替换角点检测
+			//计算指定方向的梯度 X方向表示垂直边缘
+			cv::Mat gradX;
+			cv::Sobel(gray, gradX, CV_32F, 1, 0);	//dx=1,dy=0 表检测垂直边缘
+
+			//梯度图二值化
+			cv::Mat absGrad, gradThresh;	//存储梯度绝对值图像和二值化后的梯度图像
+			absGrad = cv::abs(gradX);
+			double minVal, maxVal;
+			cv::minMaxLoc(absGrad, &minVal, &maxVal);	//将absGrad中的像素值范围[a,b]通过指针传递给min&maxVal
+			cv::threshold(absGrad, gradThresh, maxVal * 0.1, 255, cv::THRESH_BINARY);	// 10%最大梯度阈值
+			gradThresh.convertTo(gradThresh, CV_8U);
+
+			//垂直方向上的非极大值抑制
+			cv::Mat nmsEdges = cv::Mat::zeros(gray.size(), CV_8U);
+			for (int y = 1; y < gradThresh.rows - 1; y++) {
+				for (int x = 1; x < gradThresh.cols - 1; x++) {
+					if (gradThresh.at<uchar>(y, x) > 0) {
+						// 垂直边缘：比较上下像素（梯度方向）
+						if (gradThresh.at<uchar>(y, x) > 0) {
+							if (gradX.at<float>(y, x) >= gradX.at<float>(y - 1, x) &&
+								gradX.at<float>(y, x) >= gradX.at<float>(y + 1, x)
+								) {
+								nmsEdges.at<uchar>(y, x) = 255;
+							}
+						}
+					}
+				}
+			}
+			//特征点提取
+			std::vector<std::vector<cv::Point>> contours;
+			cv::findContours(nmsEdges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+			//沿边缘采样点 每n个像素取一个点
+			const int samplingInterval = 10;  // 采样间隔
+			for (const auto& contour : contours) {
+				for (int i = 0; i < contour.size(); i += samplingInterval) {
+					if (trackedPoints.size() >= 100) break;  // 限制点数
+					trackedPoints.emplace_back(contour[i].x, contour[i].y);
+				}
+			}
+
+
+			//使用角点检测（比轮廓更适合跟踪）
+			//cv::goodFeaturesToTrack(
+			//	gray,               // 输入灰度图
+			//	trackedPoints,      // 输出角点
+			//	100,                // 最大角点数
+			//	0.01,               // 质量等级
+			//	10,                 // 最小间距
+			//	cv::Mat(),          // 掩模
+			//	3,                  // 邻域尺寸
+			//	false,              // 不使用Harris
+			//	0.04                // Harris参数
+			//);
+		}
+		// 后续帧进行光流跟踪
+		else if (!prevGray.empty()) {
+			std::vector<cv::Point2f> newPoints;
+			std::vector<uchar> status;
+			std::vector<float> err;
+
+			// LK光流法跟踪
+			cv::calcOpticalFlowPyrLK(
+				prevGray, gray,
+				trackedPoints, newPoints,
+				status, err,
+				cv::Size(21, 21),   // 搜索窗口
+				3                   // 金字塔层数
+			);
+
+			// 更新有效跟踪点
+			std::vector<cv::Point2f> goodPoints;
+			for (size_t i = 0; i < trackedPoints.size(); i++) {
+				if (status[i]) {
+					goodPoints.push_back(newPoints[i]);
+					// 跟踪点
+					cv::circle(result, newPoints[i], 5, cv::Scalar(0, 255, 0), -1);
+				}
+			}
+
+			//std::cout << "Tracked Points:" << std::endl;
+			//for (const auto& point : trackedPoints) {
+			//	std::cout << "(" << point.x << ", " << point.y << ")" << std::endl;
+			//}
+			// vector中是一堆二维像素坐标，可以迁移到模型中0704-25
+			// 可以使用处理静态图像的方法，划定一个像素区域来去除图像边缘地区的杂点
+			// 但是在血管模型中怎么跟踪还需要检验，想法是保留动态变化的点，
+			// 具体实现要等血管模型来了之后检验
+			//Tracked Points :
+			//(719, 531)
+			//	(750, 515)
+			//	(751, 546)
+			//	(713, 521)
+			//	(780, 500)
+
+		}
+		prevGray = gray.clone();
+
+
+		QImage resultImg = cvMatToQImage(result);
+		mainDisplay->setPixmap(QPixmap::fromImage(resultImg)
+			.scaled(mainDisplay->width(),
+				mainDisplay->height(),
+				Qt::KeepAspectRatio));
+
+	}
+	else {
+		qDebug() << "Unable to read camera frames";
+		frameTimer->stop();
+		cameraDisplay->setText("Camera disconnected");
+		edgeDisplay->setText("No input");
+	}
+}
+
+
+QImage MainWindow::cvMatToQImage(const cv::Mat& inMat) {
+	switch (inMat.type()) {
+	case CV_8UC3: {
+		QImage image(inMat.data, inMat.cols, inMat.rows, static_cast<int>(inMat.step), QImage::Format_RGB888);
+		return image.rgbSwapped(); //BGR->RGB
+	}
+	case CV_8UC1: {
+		QImage image(inMat.data,
+			inMat.cols, inMat.rows,
+			static_cast<int>(inMat.step),
+			QImage::Format_Grayscale8);
+		return image;
+	}
+	default:
+		qWarning() << "Unsupported image format:" << inMat.type();
+		// 转换为默认格式
+		cv::Mat dst;
+		cv::cvtColor(inMat, dst, cv::COLOR_BGR2RGB);
+		return QImage(dst.data, dst.cols, dst.rows,
+			static_cast<int>(dst.step),
+			QImage::Format_RGB888);
+	}
+
+}
+
+
+cv::Mat MainWindow::detectEdges(const cv::Mat& input) {
+	cv::Mat gray, edge;
+
+	cv::cvtColor(input, gray, cv::COLOR_BGR2GRAY);
+
+	cv::GaussianBlur(gray, gray, cv::Size(5, 5), 1.5);
+
+	cv::Canny(gray, edge, 10, 50);
+
+	return edge;
+}
+

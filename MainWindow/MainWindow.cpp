@@ -18,117 +18,386 @@ MainWindow::~MainWindow() {
 	}
 }
 
+
+void MainWindow::createPages() {
+	pageContainer = new QStackedWidget();
+
+	// ============页面1
+	cameraPage = new QWidget();
+	cameraPage->setStyleSheet("background-color: #F5F5F7;");
+
+	QHBoxLayout* cameraLayout = new QHBoxLayout(cameraPage);
+	cameraLayout->setContentsMargins(20, 20, 20, 20);
+	cameraLayout->setSpacing(20);
+
+	// 左侧显示区域
+	leftPanel = new QWidget();
+	// leftPanel->setStyleSheet(
+	//     "background: #FFFFFF;"  // 纯白背景
+	//     "border-radius: 14px;"  // iOS大圆角
+	//     "padding: 0px;"
+	//     "box-shadow: 0 4px 12px rgba(0,0,0,0.05);"  // 柔和阴影
+	//     );
+	leftPanelLayout = new QVBoxLayout(leftPanel);
+	leftPanelLayout->setContentsMargins(0, 0, 0, 0);
+	leftPanelLayout->setSpacing(20);
+
+
+	//主显示（追踪）
+	mainDisplay = new QLabel();
+
+	mainDisplay->setAlignment(Qt::AlignCenter);
+	mainDisplay->setStyleSheet(
+		"background-color:rgba(255, 255, 255, 0.55);"
+		"border: 1px solid rgba(255, 255, 255, 0.18);"
+		"border-radius: 18px;"
+		"backdrop-filter: blur(20px); "
+		"box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);"
+		"padding: 0px;"
+	);
+
+	downContainer = new QWidget();
+	downLayout = new QHBoxLayout(downContainer);
+	downLayout->setContentsMargins(0, 0, 0, 0);
+	downLayout->setSpacing(20); // 两个子组件之间的间隔
+
+	edgeDisplay = new QLabel();
+	edgeDisplay->setStyleSheet(
+		"background-color:rgba(255, 255, 255, 0.55);"
+		"border: 1px solid rgba(255, 255, 255, 0.18);"
+		"border-radius: 18px;"
+		"backdrop-filter: blur(20px); "
+		"box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);"
+		"padding: 0px;"
+	);
+
+	cameraDisplay = new QLabel();
+	cameraDisplay->setStyleSheet(
+		"background-color:rgba(255, 255, 255, 0.55);"
+		"border: 1px solid rgba(255, 255, 255, 0.18);"
+		"border-radius: 18px;"
+		"backdrop-filter: blur(20px); "
+		"box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);"
+		"padding: 0px;"
+	);
+
+	leftPanelLayout->setSpacing(0);
+	leftPanelLayout->addWidget(mainDisplay, 7);
+
+	downLayout->addWidget(edgeDisplay);
+	downLayout->addWidget(cameraDisplay);
+
+	leftPanelLayout->addSpacing(20);
+	leftPanelLayout->addWidget(downContainer, 3);
+
+
+
+
+	// 右侧面板 - iOS控制台样式
+	QWidget* rightPanel = new QWidget();
+	rightPanel->setStyleSheet(
+		"background: #FFFFFF;"
+		"border-radius: 12px;"
+		"box-shadow: 0 4px 15px rgba(0,0,0,0.08);"
+	);
+	QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
+	rightLayout->setContentsMargins(20, 20, 20, 20);
+	rightLayout->setSpacing(20);
+
+
+	// 添加示例控制元素
+	QLabel* controlsHeader = new QLabel("Detection settings");
+	controlsHeader->setStyleSheet(
+		"font-size: 22px;"
+		"font-weight: 600;"
+		"color: #000000;"
+		"padding-bottom: 6px;"
+		"border-bottom: 1px solid #F0F0F0;"
+	);
+	controlsHeader->setAlignment(Qt::AlignLeft);
+
+	// 滑块控件
+	QWidget* sliderGroup = new QWidget();
+	QVBoxLayout* sliderLayout = new QVBoxLayout(sliderGroup);
+	sliderLayout->setContentsMargins(0, 10, 0, 10);
+	sliderLayout->setSpacing(15);
+	QLabel* thresholdLabel = new QLabel("Edge detection threshold");
+	thresholdLabel->setStyleSheet(
+		"font-size: 17px;"
+		"font-weight: 500;"
+		"color: #333333;"
+	);
+	QSlider* thresholdSlider = new QSlider(Qt::Horizontal);
+	thresholdSlider->setStyleSheet(
+		"QSlider::groove:horizontal {"
+		"   height: 6px;"
+		"   background: #E0E0E0;"
+		"   border-radius: 3px;"
+		"}"
+		"QSlider::handle:horizontal {"
+		"   background: #007AFF;"   // iOS系统蓝色
+		"   width: 22px;"
+		"   height: 22px;"
+		"   margin: -8px 0;"
+		"   border-radius: 11px;"
+		"}"
+	);
+
+	// 添加控件到滑块组
+	sliderLayout->addWidget(thresholdLabel);
+	sliderLayout->addWidget(thresholdSlider);
+
+	// 其他设置控件 (占位)
+	QPushButton* startButton = new QPushButton("Start detection");
+	startButton->setStyleSheet(
+		"QPushButton {"
+		"   background-color: #007AFF;"
+		"   color: white;"
+		"   border-radius: 10px;"
+		"   padding: 12px;"
+		"   font-size: 17px;"
+		"   font-weight: 600;"
+		"}"
+		"QPushButton:hover {"
+		"   background-color: #0062CC;"
+		"}"
+		"QPushButton:pressed {"
+		"   background-color: #004D99;"
+		"}"
+	);
+
+	// 添加控件到右侧面板
+	rightLayout->addWidget(controlsHeader);
+	rightLayout->addWidget(sliderGroup);
+	rightLayout->addStretch(); // 弹簧占位
+	rightLayout->addWidget(startButton);
+
+
+	cameraLayout->addWidget(leftPanel, 9);
+	cameraLayout->addWidget(rightPanel, 1);
+
+
+	pageContainer->addWidget(cameraPage);  // 索引0
+
+
+	// =============页面2
+	settingsPage = new QWidget();
+	QVBoxLayout* settingsLayout = new QVBoxLayout(settingsPage);
+	settingsLayout->setContentsMargins(40, 40, 40, 40);
+
+	// 添加设置页面内容示例
+	QLabel* settingsTitle = new QLabel("系统设置");
+	settingsTitle->setStyleSheet("font-size: 24px; font-weight: bold; color: #333333;");
+
+	QWidget* settingItem = new QWidget();
+	QHBoxLayout* itemLayout = new QHBoxLayout(settingItem);
+	itemLayout->setContentsMargins(0, 0, 0, 0);
+
+	QLabel* itemLabel = new QLabel("边缘检测阈值");
+	QSlider* itemSlider = new QSlider(Qt::Horizontal);
+
+	itemLayout->addWidget(itemLabel, 1);
+	itemLayout->addWidget(itemSlider, 2);
+
+	settingsLayout->addWidget(settingsTitle);
+	settingsLayout->addSpacing(30);
+	settingsLayout->addWidget(settingItem);
+	settingsLayout->addStretch();  // 弹簧
+
+	pageContainer->addWidget(settingsPage);  // 索引1
+}
+
+void MainWindow::switchPage(int index) {
+	pageContainer->setCurrentIndex(index);
+}
+
+void MainWindow::createNavigation() {
+	//导航面板
+	navPanel = new QWidget();
+	navPanel->setStyleSheet(
+		"background: #FFFFFF;"
+		"border-right: 1px solid #E0E0E0;");
+
+	navLayout = new QVBoxLayout(navPanel);
+	navLayout->setContentsMargins(5, 20, 5, 20);
+	navLayout->setSpacing(10);
+
+	//导航按钮组
+	navButtonGroup = new QButtonGroup(this);
+	navButtonGroup->setExclusive(true);
+
+	//摄像头页面按钮  ps：为什么在这里定义？不在头文件中定义？
+	QPushButton* cameraBtn = new QPushButton("摄像头");
+	cameraBtn->setCheckable(true);
+	cameraBtn->setChecked(true);
+	cameraBtn->setStyleSheet(
+		"QPushButton {"
+		"   text-align: left;"
+		"   padding: 12px 16px;"
+		"   border-radius: 8px;"
+		"   font-size: 14px;"
+		"}"
+		"QPushButton:checked {"
+		"   background: #E3F2FD;"
+		"   color: #1976D2;"
+		"   font-weight: bold;"
+		"}"
+		"QPushButton:hover {"
+		"   background: #F5F5F5;"
+		"}"
+	);
+	navLayout->addWidget(cameraBtn);
+
+	//页面按钮
+	QPushButton* settingsBtn = new QPushButton("设置");
+	settingsBtn->setCheckable(true);
+	settingsBtn->setStyleSheet(cameraBtn->styleSheet());
+	navLayout->addWidget(settingsBtn);
+
+	// 添加按钮到组并连接信号
+	navButtonGroup->addButton(cameraBtn, 0);
+	navButtonGroup->addButton(settingsBtn, 1);
+	//待理解
+	connect(navButtonGroup, &QButtonGroup::idClicked,
+		this, &MainWindow::switchPage);
+	// 添加弹簧使按钮置顶
+	navLayout->addStretch();
+}
+
 void MainWindow::setupUi() {
 	// 设置主窗口背景为iOS风格浅色调
 	centralWidget = new QWidget(this);
 	centralWidget->setStyleSheet("background-color: #F5F5F7;");  // iOS系统灰色背景
 	setCentralWidget(centralWidget);
 
+	//修改主界面
+
+
 	mainLayout = new QHBoxLayout(centralWidget);
-	mainLayout->setContentsMargins(20, 20, 20, 20);  // 增加外围边距
-	mainLayout->setSpacing(20);  // 增加组件间距
+	mainLayout->setContentsMargins(0, 0, 0, 0);  // 增加外围边距
+	mainLayout->setSpacing(0);  // 增加组件间距
 
-	leftPanel = new QWidget();
-	leftPanelLayout = new QVBoxLayout(leftPanel);
-	leftPanelLayout->setContentsMargins(0, 0, 0, 0);
-	leftPanelLayout->setSpacing(15);  // 组件间距调整
+	// 创建导航
+	createNavigation();
+	mainLayout->addWidget(navPanel, 1); //导航栏宽度占比1/10
 
-	//分隔
-	downContainer = new QWidget();
-	downContainer->setStyleSheet("background: transparent; border: none;"); // 透明背景，无边框
-	downLayout = new QHBoxLayout(downContainer);
-	downLayout->setContentsMargins(0, 0, 0, 0);
-	downLayout->setSpacing(15); // 两个子组件之间的间隔
+	//页面容器
+	createPages();
+	mainLayout->addWidget(pageContainer, 9);
 
-	edgeDisplay = new QLabel();
-	edgeDisplay->setStyleSheet(
-		"background: white;"
-		"border-radius: 12px;"
-		"padding: 12px;"
-		"font-size: 16px;"
-		"color: #8E8E93;"
-		"border: none;"
-		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"
-	);
-	edgeDisplay->setMinimumHeight(100);
-
-	cameraDisplay = new QLabel();
-	cameraDisplay->setStyleSheet(
-		"background: white;"
-		"border-radius: 12px;"
-		"padding: 12px;"
-		"font-size: 16px;"
-		"color: #8E8E93;"
-		"border: none;"
-		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);");
-	cameraDisplay->setMinimumHeight(100);
-
-	downLayout->addWidget(edgeDisplay);
-	downLayout->addWidget(cameraDisplay);
-
-
-	//右上的追踪画面
-	mainDisplay = new QLabel();
-	mainDisplay->setMinimumSize(640, 480);
-	mainDisplay->setAlignment(Qt::AlignCenter);
-	mainDisplay->setStyleSheet(
-		"background: white;"
-		"border-radius: 12px;"       // 圆角效果
-		"padding: 8px;"
-		"font-size: 18px;"
-		"font-weight: 500;"
-		"color: #8E8E93;"            // iOS辅助文本色
-		"border: none;"
-		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"  // 柔和阴影
-	);
-
-	// 添加到左侧布局
-	leftPanelLayout->addWidget(mainDisplay);
-	leftPanelLayout->addWidget(downContainer);
-
-
-	 // 右侧面板 - iOS控制台样式
-	 QWidget* rightPanel = new QWidget();
-	 rightPanel->setStyleSheet(
-	     "background: #FFFFFF;"
-	     "border-radius: 12px;"
-	     "box-shadow: 0 4px 15px rgba(0,0,0,0.08);"
-	     );
-	 QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
-	 rightLayout->setContentsMargins(20, 20, 20, 20);
-
-	 // 添加示例控制元素
-	 QLabel* controlsTitle = new QLabel("EDGE SETTINGS");
-	 controlsTitle->setStyleSheet("font-size: 20px; font-weight: 600; color: #000000;");
-	 controlsTitle->setAlignment(Qt::AlignCenter);
-
-	 // 示例滑块控件
-	 QSlider* thresholdSlider = new QSlider(Qt::Horizontal);
-	 thresholdSlider->setStyleSheet(
-	     "QSlider::groove:horizontal {"
-	     "   height: 6px;"
-	     "   background: #E0E0E0;"
-	     "   border-radius: 3px;"
-	     "}"
-	     "QSlider::handle:horizontal {"
-	     "   background: #007AFF;"   // iOS系统蓝色
-	     "   width: 22px;"
-	     "   height: 22px;"
-	     "   margin: -8px 0;"
-	     "   border-radius: 11px;"
-	     "}"
-	     );
-
-	 rightLayout->addWidget(controlsTitle);
-	 rightLayout->addSpacing(15);
-	 rightLayout->addWidget(new QLabel("Edge Threshold:"));
-	 rightLayout->addWidget(thresholdSlider);
-	 rightLayout->addStretch();  // 弹性空间
-
-	// // 添加到主布局
-	mainLayout->addWidget(leftPanel, 7);
-	 mainLayout->addWidget(rightPanel, 3);
 }
+
+//void MainWindow::setupUi() {
+//	// 设置主窗口背景为iOS风格浅色调
+//	centralWidget = new QWidget(this);
+//	centralWidget->setStyleSheet("background-color: #F5F5F7;");  // iOS系统灰色背景
+//	setCentralWidget(centralWidget);
+//
+//	mainLayout = new QHBoxLayout(centralWidget);
+//	mainLayout->setContentsMargins(20, 20, 20, 20);  // 增加外围边距
+//	mainLayout->setSpacing(20);  // 增加组件间距
+//
+//	leftPanel = new QWidget();
+//	leftPanelLayout = new QVBoxLayout(leftPanel);
+//	leftPanelLayout->setContentsMargins(0, 0, 0, 0);
+//	leftPanelLayout->setSpacing(15);  // 组件间距调整
+//
+//	//分隔
+//	downContainer = new QWidget();
+//	downContainer->setStyleSheet("background: transparent; border: none;"); // 透明背景，无边框
+//	downLayout = new QHBoxLayout(downContainer);
+//	downLayout->setContentsMargins(0, 0, 0, 0);
+//	downLayout->setSpacing(15); // 两个子组件之间的间隔
+//
+//	edgeDisplay = new QLabel();
+//	edgeDisplay->setStyleSheet(
+//		"background: white;"
+//		"border-radius: 12px;"
+//		"padding: 12px;"
+//		"font-size: 16px;"
+//		"color: #8E8E93;"
+//		"border: none;"
+//		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"
+//	);
+//	edgeDisplay->setMinimumHeight(100);
+//
+//	cameraDisplay = new QLabel();
+//	cameraDisplay->setStyleSheet(
+//		"background: white;"
+//		"border-radius: 12px;"
+//		"padding: 12px;"
+//		"font-size: 16px;"
+//		"color: #8E8E93;"
+//		"border: none;"
+//		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);");
+//	cameraDisplay->setMinimumHeight(100);
+//
+//	downLayout->addWidget(edgeDisplay);
+//	downLayout->addWidget(cameraDisplay);
+//
+//
+//	//右上的追踪画面
+//	mainDisplay = new QLabel();
+//	mainDisplay->setMinimumSize(640, 480);
+//	mainDisplay->setAlignment(Qt::AlignCenter);
+//	mainDisplay->setStyleSheet(
+//		"background: white;"
+//		"border-radius: 12px;"       // 圆角效果
+//		"padding: 8px;"
+//		"font-size: 18px;"
+//		"font-weight: 500;"
+//		"color: #8E8E93;"            // iOS辅助文本色
+//		"border: none;"
+//		"box-shadow: 0 2px 10px rgba(0,0,0,0.05);"  // 柔和阴影
+//	);
+//
+//	// 添加到左侧布局
+//	leftPanelLayout->addWidget(mainDisplay);
+//	leftPanelLayout->addWidget(downContainer);
+//
+//
+//	 // 右侧面板 - iOS控制台样式
+//	 QWidget* rightPanel = new QWidget();
+//	 rightPanel->setStyleSheet(
+//	     "background: #FFFFFF;"
+//	     "border-radius: 12px;"
+//	     "box-shadow: 0 4px 15px rgba(0,0,0,0.08);"
+//	     );
+//	 QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
+//	 rightLayout->setContentsMargins(20, 20, 20, 20);
+//
+//	 // 添加示例控制元素
+//	 QLabel* controlsTitle = new QLabel("EDGE SETTINGS");
+//	 controlsTitle->setStyleSheet("font-size: 20px; font-weight: 600; color: #000000;");
+//	 controlsTitle->setAlignment(Qt::AlignCenter);
+//
+//	 // 示例滑块控件
+//	 QSlider* thresholdSlider = new QSlider(Qt::Horizontal);
+//	 thresholdSlider->setStyleSheet(
+//	     "QSlider::groove:horizontal {"
+//	     "   height: 6px;"
+//	     "   background: #E0E0E0;"
+//	     "   border-radius: 3px;"
+//	     "}"
+//	     "QSlider::handle:horizontal {"
+//	     "   background: #007AFF;"   // iOS系统蓝色
+//	     "   width: 22px;"
+//	     "   height: 22px;"
+//	     "   margin: -8px 0;"
+//	     "   border-radius: 11px;"
+//	     "}"
+//	     );
+//
+//	 rightLayout->addWidget(controlsTitle);
+//	 rightLayout->addSpacing(15);
+//	 rightLayout->addWidget(new QLabel("Edge Threshold:"));
+//	 rightLayout->addWidget(thresholdSlider);
+//	 rightLayout->addStretch();  // 弹性空间
+//
+//	// // 添加到主布局
+//	mainLayout->addWidget(leftPanel, 7);
+//	 mainLayout->addWidget(rightPanel, 3);
+////}
 
 
 void MainWindow::setupCamera() {

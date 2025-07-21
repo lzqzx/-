@@ -31,22 +31,20 @@ void MainWindow::createPages() {
 
 	// 左侧显示区域
 	leftPanel = new QWidget();
-	// leftPanel->setStyleSheet(
-	//     "background: #FFFFFF;"  // 纯白背景
-	//     "border-radius: 14px;"  // iOS大圆角
-	//     "padding: 0px;"
-	//     "box-shadow: 0 4px 12px rgba(0,0,0,0.05);"  // 柔和阴影
-	//     );
 	leftPanelLayout = new QVBoxLayout(leftPanel);
 	leftPanelLayout->setContentsMargins(0, 0, 0, 0);
 	leftPanelLayout->setSpacing(20);
 
+	// 添加尺寸约束策略
+	auto setLabelPolicy = [](QLabel* label) {
+		label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+		label->setScaledContents(true);
+		label->setMinimumSize(1, 1); // 防止布局崩溃
+		};
 
 	//主显示（追踪）
 	mainDisplay = new QLabel();
-	//设置尺寸策略
-	mainDisplay->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
+	setLabelPolicy(mainDisplay); //应用约束
 	mainDisplay->setAlignment(Qt::AlignCenter);
 	mainDisplay->setStyleSheet(
 		"background-color:rgba(255, 255, 255, 0.55);"
@@ -62,10 +60,10 @@ void MainWindow::createPages() {
 	downLayout->setContentsMargins(0, 0, 0, 0);
 	downLayout->setSpacing(20); // 两个子组件之间的间隔
 
-	edgeDisplay = new QLabel();
-	//尺寸策略
-	edgeDisplay->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
+
+	edgeDisplay = new QLabel();
+	setLabelPolicy(edgeDisplay); // 应用约束
 	edgeDisplay->setStyleSheet(
 		"background-color:rgba(255, 255, 255, 0.55);"
 		"border: 1px solid rgba(255, 255, 255, 0.18);"
@@ -76,9 +74,7 @@ void MainWindow::createPages() {
 	);
 
 	cameraDisplay = new QLabel();
-	//尺寸策略
-	cameraDisplay->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
+	setLabelPolicy(cameraDisplay); // 应用约束
 	cameraDisplay->setStyleSheet(
 		"background-color:rgba(255, 255, 255, 0.55);"
 		"border: 1px solid rgba(255, 255, 255, 0.18);"
@@ -87,12 +83,6 @@ void MainWindow::createPages() {
 		"box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);"
 		"padding: 0px;"
 	);
-
-	//设置最大尺寸限制
-	int maxHeight = 480;
-	mainDisplay->setMaximumHeight(maxHeight);
-	edgeDisplay->setMaximumHeight(maxHeight / 2);
-	cameraDisplay->setMaximumHeight(maxHeight / 2);
 
 	leftPanelLayout->setSpacing(0);
 	leftPanelLayout->addWidget(mainDisplay, 7);
@@ -186,8 +176,8 @@ void MainWindow::createPages() {
 	rightLayout->addWidget(startButton);
 
 
-	cameraLayout->addWidget(leftPanel, 9);
-	cameraLayout->addWidget(rightPanel, 1);
+	cameraLayout->addWidget(leftPanel, 7);
+	cameraLayout->addWidget(rightPanel, 3);
 
 
 	pageContainer->addWidget(cameraPage);  // 索引0
@@ -278,21 +268,23 @@ void MainWindow::createNavigation() {
 }
 
 void MainWindow::setupUi() {
+
 	// 设置主窗口背景为iOS风格浅色调
 	centralWidget = new QWidget(this);
 	centralWidget->setStyleSheet("background-color: #F5F5F7;");  // iOS系统灰色背景
 	setCentralWidget(centralWidget);
 
 	//修改主界面
-
-
 	mainLayout = new QHBoxLayout(centralWidget);
 	mainLayout->setContentsMargins(0, 0, 0, 0);  // 增加外围边距
 	mainLayout->setSpacing(0);  // 增加组件间距
 
 	// 创建导航
 	createNavigation();
-	mainLayout->addWidget(navPanel, 1); //导航栏宽度占比1/10
+
+	//导航宽度固定
+	navPanel->setFixedWidth(150);
+	mainLayout->addWidget(navPanel); //导航栏宽度占比1/10
 
 	//页面容器
 	createPages();
@@ -334,14 +326,12 @@ void MainWindow::updateCameraFrame() {
 		cv::Mat rgbFrame;
 		cv::cvtColor(frame, rgbFrame, cv::COLOR_BGR2RGB);
 		QImage origImg = cvMatToQImage(rgbFrame);
-
-
-		
+	
 		// 显示原始图像
-		//固定尺寸
-		QSize displaySize(640, 480);
-		cameraDisplay->setPixmap(QPixmap::fromImage(origImg)
-			.scaled(displaySize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+		//显示到控件时使用实际大小
+		cameraDisplay->setPixmap(
+			QPixmap::fromImage(origImg)
+		);
 
 		// 边缘检测 
 		cv::Mat edges = detectEdges(frame);
@@ -352,8 +342,8 @@ void MainWindow::updateCameraFrame() {
 
 		// 显示边缘图像
 		QImage edgeImg = cvMatToQImage(colorEdges);
-		edgeDisplay->setPixmap(QPixmap::fromImage(edgeImg)
-			.scaled(displaySize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+		edgeDisplay->setPixmap(
+			QPixmap::fromImage(edgeImg));
 
 		cv::Mat gray;
 		cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
@@ -473,8 +463,19 @@ void MainWindow::updateCameraFrame() {
 
 
 		QImage resultImg = cvMatToQImage(result);
-		mainDisplay->setPixmap(QPixmap::fromImage(resultImg)
-			.scaled(displaySize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+		mainDisplay->setPixmap(
+			QPixmap::fromImage(resultImg));
+		//// 获取显示控件的实际尺寸
+		//const QSize availableSize = cameraDisplay->size();
+
+		//// 创建目标尺寸（限制最大分辨率）
+		//QSize targetSize;
+		//// 限制最大宽度
+		//targetSize = QSize(qMin(availableSize.width(), 1280), 0);
+		//targetSize.setHeight(targetSize.width() * 9 / 16); // 16:9比例
+
+		//mainDisplay->setPixmap(QPixmap::fromImage(resultImg)
+		//	.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
 	}
 	else {

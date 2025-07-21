@@ -24,10 +24,13 @@ public:
     ~MainWindow();
 
 private slots:
-    void updateCameraFrame();  // 更新摄像头帧
+    void updateCameraFrame();  // 更新摄像头帧 这里的耦合度是不是有点太高了
     void switchPage(int index);
 
 private:
+    int lowThreshold = 10;  // 低阈值默认值
+    int highThreshold = 50; // 高阈值默认值
+
     //导航栏
     QWidget* navPanel;
     QVBoxLayout* navLayout;

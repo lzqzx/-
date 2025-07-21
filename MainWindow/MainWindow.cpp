@@ -64,6 +64,7 @@ void MainWindow::createPages() {
 
 	edgeDisplay = new QLabel();
 	setLabelPolicy(edgeDisplay); // 应用约束
+	edgeDisplay->setAlignment(Qt::AlignCenter);
 	edgeDisplay->setStyleSheet(
 		"background-color:rgba(255, 255, 255, 0.55);"
 		"border: 1px solid rgba(255, 255, 255, 0.18);"
@@ -75,6 +76,7 @@ void MainWindow::createPages() {
 
 	cameraDisplay = new QLabel();
 	setLabelPolicy(cameraDisplay); // 应用约束
+	cameraDisplay->setAlignment(Qt::AlignCenter);
 	cameraDisplay->setStyleSheet(
 		"background-color:rgba(255, 255, 255, 0.55);"
 		"border: 1px solid rgba(255, 255, 255, 0.18);"
@@ -84,12 +86,15 @@ void MainWindow::createPages() {
 		"padding: 0px;"
 	);
 
+	cameraDisplay->setMaximumSize(1920, 1080);
+	edgeDisplay->setMaximumSize(1920, 1080);
+
+
 	leftPanelLayout->setSpacing(0);
 	leftPanelLayout->addWidget(mainDisplay, 7);
 
 	downLayout->addWidget(edgeDisplay);
 	downLayout->addWidget(cameraDisplay);
-
 	leftPanelLayout->addSpacing(20);
 	leftPanelLayout->addWidget(downContainer, 3);
 
@@ -146,6 +151,23 @@ void MainWindow::createPages() {
 		"}"
 	);
 
+	// 设置滑块范围和初始值
+	thresholdSlider->setRange(10, 200);  // 调整适合的值范围
+	thresholdSlider->setValue(lowThreshold);
+
+	// 连接滑块值变化信号
+	connect(thresholdSlider, &QSlider::valueChanged, this, [=](int value) {
+		// 设置新的阈值关系（高阈值为低阈值的2-3倍）
+		lowThreshold = value;
+		highThreshold = lowThreshold * 2 + 20;  // 可调整比例关系
+
+		// 立即更新边缘检测显示
+		if (cameraPage == pageContainer->currentWidget()) {
+			updateCameraFrame();
+		}
+		});
+
+
 	// 添加控件到滑块组
 	sliderLayout->addWidget(thresholdLabel);
 	sliderLayout->addWidget(thresholdSlider);
@@ -189,7 +211,7 @@ void MainWindow::createPages() {
 	settingsLayout->setContentsMargins(40, 40, 40, 40);
 
 	// 添加设置页面内容示例
-	QLabel* settingsTitle = new QLabel("系统设置");
+	QLabel* settingsTitle = new QLabel("System Settings");
 	settingsTitle->setStyleSheet("font-size: 24px; font-weight: bold; color: #333333;");
 
 	QWidget* settingItem = new QWidget();
@@ -465,17 +487,6 @@ void MainWindow::updateCameraFrame() {
 		QImage resultImg = cvMatToQImage(result);
 		mainDisplay->setPixmap(
 			QPixmap::fromImage(resultImg));
-		//// 获取显示控件的实际尺寸
-		//const QSize availableSize = cameraDisplay->size();
-
-		//// 创建目标尺寸（限制最大分辨率）
-		//QSize targetSize;
-		//// 限制最大宽度
-		//targetSize = QSize(qMin(availableSize.width(), 1280), 0);
-		//targetSize.setHeight(targetSize.width() * 9 / 16); // 16:9比例
-
-		//mainDisplay->setPixmap(QPixmap::fromImage(resultImg)
-		//	.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 
 	}
 	else {
@@ -520,7 +531,7 @@ cv::Mat MainWindow::detectEdges(const cv::Mat& input) {
 
 	cv::GaussianBlur(gray, gray, cv::Size(5, 5), 1.5);
 
-	cv::Canny(gray, edge, 10, 50);
+	cv::Canny(gray, edge, lowThreshold, highThreshold);
 
 	return edge;
 }

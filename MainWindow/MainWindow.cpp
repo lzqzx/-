@@ -157,6 +157,8 @@ void MainWindow::createPages() {
 
 	// 连接滑块值变化信号
 	connect(thresholdSlider, &QSlider::valueChanged, this, [=](int value) {
+		//解释： [=](int value)把新的value值（由qt实时传入）加上thresholdSlider, &QSlider::valueChanged, this,这些静态的东西，扔给下面的逻辑计算
+		
 		// 设置新的阈值关系（高阈值为低阈值的2-3倍）
 		lowThreshold = value;
 		highThreshold = lowThreshold * 2 + 20;  // 可调整比例关系
@@ -373,115 +375,297 @@ void MainWindow::updateCameraFrame() {
 		// 创建结果图像（在原始帧上绘制）
 		cv::Mat result = frame.clone();
 
-		// 静态变量保持跟踪状态
+		/*==============追踪=========================*/
 		static std::vector<cv::Point2f> trackedPoints;
 		static cv::Mat prevGray;
-		
 
-		 //初始检测或当点过少时重新检测
-		if (trackedPoints.empty() || trackedPoints.size() < 5)	//5个好像有点太少了
-		{
+		// 参数配置
+		const int MIN_TRACK_POINTS = 15;
+		const int MAX_TRACK_POINTS = 80;
+		const float GRADIENT_THRESH_RATIO = 0.15f;
+		const int LINE_SAMPLING_INTERVAL = 8;
+		const int MOTION_HISTORY = 3;
 
+		// 存储点运动历史
+		static std::deque<std::vector<cv::Point2f>> motionHistory;
+		// 更新跟踪点处理
+		if (trackedPoints.size() < MIN_TRACK_POINTS) {
 			trackedPoints.clear();
-			
-			//替换角点检测
-			//计算指定方向的梯度 X方向表示垂直边缘
-			cv::Mat gradX;
-			cv::Sobel(gray, gradX, CV_32F, 1, 0);	//dx=1,dy=0 表检测垂直边缘
+			motionHistory.clear();
 
-			//梯度图二值化
-			cv::Mat absGrad, gradThresh;	//存储梯度绝对值图像和二值化后的梯度图像
-			absGrad = cv::abs(gradX);
+			// 多方向梯度计算
+			cv::Mat gradX, gradY, gradMag, gradDir;
+			cv::Sobel(gray, gradX, CV_32F, 1, 0, 5);
+			cv::Sobel(gray, gradY, CV_32F, 0, 1, 5);
+			cv::cartToPolar(gradX, gradY, gradMag, gradDir);
+
+			// 梯度幅值归一化
 			double minVal, maxVal;
-			cv::minMaxLoc(absGrad, &minVal, &maxVal);	//将absGrad中的像素值范围[a,b]通过指针传递给min&maxVal
-			cv::threshold(absGrad, gradThresh, maxVal * 0.1, 255, cv::THRESH_BINARY);	// 10%最大梯度阈值
-			gradThresh.convertTo(gradThresh, CV_8U);
+			cv::minMaxLoc(gradMag, &minVal, &maxVal);
+			gradMag.convertTo(gradMag, CV_32F, 1.0 / (maxVal - minVal), -minVal / (maxVal - minVal));
 
-			//垂直方向上的非极大值抑制
+			// 多方向非极大值抑制
 			cv::Mat nmsEdges = cv::Mat::zeros(gray.size(), CV_8U);
-			for (int y = 1; y < gradThresh.rows - 1; y++) {
-				for (int x = 1; x < gradThresh.cols - 1; x++) {
-					if (gradThresh.at<uchar>(y, x) > 0) {
-						// 垂直边缘：比较上下像素（梯度方向）
-						if (gradThresh.at<uchar>(y, x) > 0) {
-							if (gradX.at<float>(y, x) >= gradX.at<float>(y - 1, x) &&
-								gradX.at<float>(y, x) >= gradX.at<float>(y + 1, x)
-								) {
-								nmsEdges.at<uchar>(y, x) = 255;
-							}
+			float neighbor1, neighbor2;
+			for (int y = 2; y < gray.rows - 2; y++) {
+				for (int x = 2; x < gray.cols - 2; x++) {
+					if (gradMag.at<float>(y, x) > GRADIENT_THRESH_RATIO) {
+						float angle = gradDir.at<float>(y, x) * 180 / CV_PI;
+						if (angle < 0) angle += 180;
+
+						// 0度方向 (水平)
+						if ((angle >= 0 && angle < 22.5) || (angle >= 157.5 && angle <= 180)) {
+							neighbor1 = gradMag.at<float>(y, x - 1);
+							neighbor2 = gradMag.at<float>(y, x + 1);
+						}
+						// 45度方向
+						else if (angle >= 22.5 && angle < 67.5) {
+							neighbor1 = gradMag.at<float>(y - 1, x + 1);
+							neighbor2 = gradMag.at<float>(y + 1, x - 1);
+						}
+						// 90度方向 (垂直)
+						else if (angle >= 67.5 && angle < 112.5) {
+							neighbor1 = gradMag.at<float>(y - 1, x);
+							neighbor2 = gradMag.at<float>(y + 1, x);
+						}
+						// 135度方向
+						else {
+							neighbor1 = gradMag.at<float>(y - 1, x - 1);
+							neighbor2 = gradMag.at<float>(y + 1, x + 1);
+						}
+
+						if (gradMag.at<float>(y, x) >= neighbor1 && gradMag.at<float>(y, x) >= neighbor2) {
+							nmsEdges.at<uchar>(y, x) = 255;
 						}
 					}
 				}
 			}
-			//特征点提取
-			std::vector<std::vector<cv::Point>> contours;
-			cv::findContours(nmsEdges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-			//沿边缘采样点 每n个像素取一个点
-			const int samplingInterval = 10;  // 采样间隔
+			// 线段检测与采样
+			std::vector<std::vector<cv::Point>> contours;
+			cv::findContours(nmsEdges.clone(), contours, cv::RETR_LIST, cv::CHAIN_APPROX_NONE);
+
 			for (const auto& contour : contours) {
-				for (int i = 0; i < contour.size(); i += samplingInterval) {
-					if (trackedPoints.size() >= 100) break;  // 限制点数
-					trackedPoints.emplace_back(contour[i].x, contour[i].y);
+				// 跳过短线段
+				if (contour.size() < 20) continue;
+
+				// 曲线简化
+				std::vector<cv::Point> approxCurve;
+				cv::approxPolyDP(contour, approxCurve, 2.0, false);
+
+				// 沿曲线均匀采样
+				for (int i = 0; i < approxCurve.size(); i += LINE_SAMPLING_INTERVAL) {
+					if (trackedPoints.size() >= MAX_TRACK_POINTS) break;
+					trackedPoints.push_back(cv::Point2f(approxCurve[i].x, approxCurve[i].y));
 				}
 			}
-
-
-			//使用角点检测（比轮廓更适合跟踪）
-			//cv::goodFeaturesToTrack(
-			//	gray,               // 输入灰度图
-			//	trackedPoints,      // 输出角点
-			//	100,                // 最大角点数
-			//	0.01,               // 质量等级
-			//	10,                 // 最小间距
-			//	cv::Mat(),          // 掩模
-			//	3,                  // 邻域尺寸
-			//	false,              // 不使用Harris
-			//	0.04                // Harris参数
-			//);
 		}
-		// 后续帧进行光流跟踪
-		else if (!prevGray.empty()) {
+		// 进行光流跟踪
+		else {
 			std::vector<cv::Point2f> newPoints;
 			std::vector<uchar> status;
 			std::vector<float> err;
+			cv::TermCriteria criteria = cv::TermCriteria(
+				cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
+				20, 0.03
+			);
 
-			// LK光流法跟踪
+			// 执行金字塔LK光流法
 			cv::calcOpticalFlowPyrLK(
 				prevGray, gray,
 				trackedPoints, newPoints,
 				status, err,
-				cv::Size(21, 21),   // 搜索窗口
-				3                   // 金字塔层数
+				cv::Size(25, 25),  // 增大搜索窗口
+				3,                 // 金字塔层数
+				criteria
 			);
 
-			// 更新有效跟踪点
+			// 运动一致性检查
 			std::vector<cv::Point2f> goodPoints;
+			std::vector<float> motions;
+
+			// 计算平均运动向量
+			cv::Point2f avgMotion(0, 0);
+			int validCount = 0;
 			for (size_t i = 0; i < trackedPoints.size(); i++) {
-				if (status[i]) {
-					goodPoints.push_back(newPoints[i]);
-					// 跟踪点
-					cv::circle(result, newPoints[i], 5, cv::Scalar(0, 255, 0), -1);
+				if (status[i] && err[i] < 20.0) {
+					cv::Point2f motion = newPoints[i] - trackedPoints[i];
+					avgMotion += motion;
+					validCount++;
+				}
+			}
+			if (validCount > 0) avgMotion /= validCount;
+
+			// 过滤异常点
+			for (size_t i = 0; i < trackedPoints.size(); i++) {
+				if (status[i] && err[i] < 20.0) {
+					cv::Point2f motion = newPoints[i] - trackedPoints[i];
+					float motionDist = cv::norm(motion - avgMotion);
+
+					// 接收运动方向一致的点和静止点
+					if (motionDist < 5.0 || cv::norm(motion) < 0.5) {
+						goodPoints.push_back(newPoints[i]);
+					}
 				}
 			}
 
-			//std::cout << "Tracked Points:" << std::endl;
-			//for (const auto& point : trackedPoints) {
-			//	std::cout << "(" << point.x << ", " << point.y << ")" << std::endl;
-			//}
-			// vector中是一堆二维像素坐标，可以迁移到模型中0704-25
-			// 可以使用处理静态图像的方法，划定一个像素区域来去除图像边缘地区的杂点
-			// 但是在血管模型中怎么跟踪还需要检验，想法是保留动态变化的点，
-			// 具体实现要等血管模型来了之后检验
-			//Tracked Points :
-			//(719, 531)
-			//	(750, 515)
-			//	(751, 546)
-			//	(713, 521)
-			//	(780, 500)
+			// 运动平滑处理 (使用历史数据)
+			motionHistory.push_back(goodPoints);
+			if (motionHistory.size() > MOTION_HISTORY) {
+				motionHistory.pop_front();
+			}
 
+			// 应用加权平均
+			trackedPoints.clear();
+			if (!motionHistory.empty()) {
+				size_t historySize = motionHistory.size();
+				for (size_t i = 0; i < goodPoints.size(); i++) {
+					cv::Point2f smoothedPoint(0, 0);
+					float weightSum = 0;
+					for (int h = 0; h < historySize; h++) {
+						float weight = (h + 1) / static_cast<float>(historySize);
+						if (i < motionHistory[h].size()) {
+							smoothedPoint += motionHistory[h][i] * weight;
+							weightSum += weight;
+						}
+					}
+					if (weightSum > 0) {
+						smoothedPoint /= weightSum;
+						trackedPoints.push_back(smoothedPoint);
+					}
+				}
+			}
+			else {
+				trackedPoints = goodPoints;
+			}
+
+			// 可视化处理
+			cv::Scalar lineColor(0, 200, 0);   // 亮绿色
+			cv::Scalar pointColor(0, 0, 255);  // 红色
+
+			// 绘制点之间的连线
+			for (size_t i = 1; i < trackedPoints.size(); i++) {
+				cv::line(result, trackedPoints[i - 1], trackedPoints[i], lineColor, 2, cv::LINE_AA);
+			}
+
+			// 绘制跟踪点
+			for (const auto& pt : trackedPoints) {
+				cv::circle(result, pt, 4, pointColor, -1);
+			}
 		}
+
+		// 更新前一帧图像
 		prevGray = gray.clone();
+
+		//// 静态变量保持跟踪状态
+		//static std::vector<cv::Point2f> trackedPoints;
+		//static cv::Mat prevGray;
+		//
+
+		// //初始检测或当点过少时重新检测
+		//if (trackedPoints.empty() || trackedPoints.size() < 5)	//5个好像有点太少了
+		//{
+
+		//	trackedPoints.clear();
+		//	
+		//	//替换角点检测
+		//	//计算指定方向的梯度 X方向表示垂直边缘
+		//	cv::Mat gradX;
+		//	cv::Sobel(gray, gradX, CV_32F, 1, 0);	//dx=1,dy=0 表检测垂直边缘
+
+		//	//梯度图二值化
+		//	cv::Mat absGrad, gradThresh;	//存储梯度绝对值图像和二值化后的梯度图像
+		//	absGrad = cv::abs(gradX);
+		//	double minVal, maxVal;
+		//	cv::minMaxLoc(absGrad, &minVal, &maxVal);	//将absGrad中的像素值范围[a,b]通过指针传递给min&maxVal
+		//	cv::threshold(absGrad, gradThresh, maxVal * 0.1, 255, cv::THRESH_BINARY);	// 10%最大梯度阈值
+		//	gradThresh.convertTo(gradThresh, CV_8U);
+
+		//	//垂直方向上的非极大值抑制
+		//	cv::Mat nmsEdges = cv::Mat::zeros(gray.size(), CV_8U);
+		//	for (int y = 1; y < gradThresh.rows - 1; y++) {
+		//		for (int x = 1; x < gradThresh.cols - 1; x++) {
+		//			if (gradThresh.at<uchar>(y, x) > 0) {
+		//				// 垂直边缘：比较上下像素（梯度方向）
+		//				if (gradThresh.at<uchar>(y, x) > 0) {
+		//					if (gradX.at<float>(y, x) >= gradX.at<float>(y - 1, x) &&
+		//						gradX.at<float>(y, x) >= gradX.at<float>(y + 1, x)
+		//						) {
+		//						nmsEdges.at<uchar>(y, x) = 255;
+		//					}
+		//				}
+		//			}
+		//		}
+		//	}
+		//	//特征点提取
+		//	std::vector<std::vector<cv::Point>> contours;
+		//	cv::findContours(nmsEdges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+		//	//沿边缘采样点 每n个像素取一个点
+		//	const int samplingInterval = 10;  // 采样间隔
+		//	for (const auto& contour : contours) {
+		//		for (int i = 0; i < contour.size(); i += samplingInterval) {
+		//			if (trackedPoints.size() >= 100) break;  // 限制点数
+		//			trackedPoints.emplace_back(contour[i].x, contour[i].y);
+		//		}
+		//	}
+
+
+		//	//使用角点检测（比轮廓更适合跟踪）
+		//	//cv::goodFeaturesToTrack(
+		//	//	gray,               // 输入灰度图
+		//	//	trackedPoints,      // 输出角点
+		//	//	100,                // 最大角点数
+		//	//	0.01,               // 质量等级
+		//	//	10,                 // 最小间距
+		//	//	cv::Mat(),          // 掩模
+		//	//	3,                  // 邻域尺寸
+		//	//	false,              // 不使用Harris
+		//	//	0.04                // Harris参数
+		//	//);
+		//}
+		//// 后续帧进行光流跟踪
+		//else if (!prevGray.empty()) {
+		//	std::vector<cv::Point2f> newPoints;
+		//	std::vector<uchar> status;
+		//	std::vector<float> err;
+
+		//	// LK光流法跟踪
+		//	cv::calcOpticalFlowPyrLK(
+		//		prevGray, gray,
+		//		trackedPoints, newPoints,
+		//		status, err,
+		//		cv::Size(21, 21),   // 搜索窗口
+		//		3                   // 金字塔层数
+		//	);
+
+		//	// 更新有效跟踪点
+		//	std::vector<cv::Point2f> goodPoints;
+		//	for (size_t i = 0; i < trackedPoints.size(); i++) {
+		//		if (status[i]) {
+		//			goodPoints.push_back(newPoints[i]);
+		//			// 跟踪点
+		//			cv::circle(result, newPoints[i], 5, cv::Scalar(0, 255, 0), -1);
+		//		}
+		//	}
+
+		//	//std::cout << "Tracked Points:" << std::endl;
+		//	//for (const auto& point : trackedPoints) {
+		//	//	std::cout << "(" << point.x << ", " << point.y << ")" << std::endl;
+		//	//}
+		//	// vector中是一堆二维像素坐标，可以迁移到模型中0704-25
+		//	// 可以使用处理静态图像的方法，划定一个像素区域来去除图像边缘地区的杂点
+		//	// 但是在血管模型中怎么跟踪还需要检验，想法是保留动态变化的点，
+		//	// 具体实现要等血管模型来了之后检验
+		//	//Tracked Points :
+		//	//(719, 531)
+		//	//	(750, 515)
+		//	//	(751, 546)
+		//	//	(713, 521)
+		//	//	(780, 500)
+
+		////}
+		//prevGray = gray.clone();
 
 
 		QImage resultImg = cvMatToQImage(result);

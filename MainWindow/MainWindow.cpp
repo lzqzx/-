@@ -4,11 +4,14 @@
 #include <QVBoxLayout>
 #include <opencv2/imgproc.hpp>
 #include <QGraphicsDropShadowEffect>
+#include <QPainter>
+#include <QPixmap>
 
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 	setupUi();
 	setupCamera();
+	updatePointCloudView();
 }
 
 MainWindow::~MainWindow() {
@@ -17,6 +20,126 @@ MainWindow::~MainWindow() {
 	}
 }
 
+QPointF MainWindow::projectPoint(float x, float y, float z) {
+	// 简单透视投影 (可调整投影参数)
+	float perspective = 0.001f;
+	float scale = 1000.0f; // 缩放系数根据数据范围调整
+
+	return QPointF(
+		(x - z * 0.5) * perspective * scale,  // X投影
+		(y - z * 0.3) * perspective * scale   // Y投影
+	);
+}
+
+void MainWindow::updatePointCloudView() {
+	// 原始数据
+	const float points[16][3] = {
+	{-82291.98352011, -78089.04482531, -67948.55108767},
+	{-30815.31443639, -60096.74555043, 4828.00131839},
+	{-42591.48582729, -73165.76994067, -131567.28872775},
+	{-35521.97165458, -47295.23665129, -639.37112722},
+	{-36341.06987475, -76012.24126566, -105631.99077126},
+	{-55991.15293342, -39345.40013184, -78757.32300593},
+	{-28657.82003955, -15228.00725115, -86627.35135135},
+	{-54953.5939354, -35733.5464733, -72557.13579433},
+	{-27067.2504944, 5389.41924852, -129737.66249176},
+	{-51339.23665129, -52875.82201714, -141974.24192485},
+	{-113816.88793672, -65350.87145682, -125281.9683586},
+	{-82866.70138431, -84950.47923533, -66318.22808174},
+	{-16058.0, -45217.0, -78592.0},
+	{-21166.0, 5402.0, -126100.0},
+	{69375.99802241, -55858.39815425, -194621.89452868},
+	{-7655.83915623, -16324.0316414, -148623.16611734}
+	};
+	// 获取绘制区域尺寸
+	QSize size = cameraDisplay->size() * 0.9; // 保留10%边距
+	if (size.isEmpty()) return;
+
+	// 创建画布
+	QPixmap pixmap(cameraDisplay->size());
+	pixmap.fill(Qt::transparent);
+
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing);
+
+	// 设置半透明白色背景（与样式表匹配）
+	painter.setBrush(QColor(255, 255, 255, 140));
+	painter.setPen(Qt::NoPen);
+	painter.drawRoundedRect(cameraDisplay->rect(), 18, 18);
+
+	// 计算投影点并确定边界
+	QVector<QPointF> projected;
+	projected.reserve(16);
+
+	float minX = std::numeric_limits<float>::max();
+	float minY = std::numeric_limits<float>::max();
+	float maxX = std::numeric_limits<float>::lowest();
+	float maxY = std::numeric_limits<float>::lowest();
+
+	for (const auto& pt : points) {
+		QPointF p = projectPoint(pt[0], pt[1], pt[2]);
+		projected.push_back(p);
+
+		if (p.x() < minX) minX = p.x();
+		if (p.y() < minY) minY = p.y();
+		if (p.x() > maxX) maxX = p.x();
+		if (p.y() > maxY) maxY = p.y();
+	}
+
+	// 计算缩放比例（保持纵横比）
+	float rangeX = maxX - minX;
+	float rangeY = maxY - minY;
+	float scaleFactor = qMin(size.width() / rangeX, size.height() / rangeY);
+	if (scaleFactor == 0 || std::isinf(scaleFactor)) scaleFactor = 1.0f;
+
+	QPointF centerOffset(size.width() / 2, size.height() / 2);
+
+	// 绘制网格
+	painter.setPen(QPen(QColor(65, 105, 225), 1.5)); // 网格线颜色
+	for (int row = 0; row < 4; ++row) {
+		for (int col = 0; col < 4; ++col) {
+			int idx = row * 4 + col;
+			QPointF point = (projected[idx] - QPointF(minX, minY)) * scaleFactor;
+			point = QPointF(point.x(), size.height() - point.y()); // 翻转Y轴
+			point += centerOffset - QPointF((rangeX * scaleFactor) / 2, (rangeY * scaleFactor) / 2);
+
+			// 绘制点
+			painter.setBrush(QColor(220, 20, 60, 200)); // 点颜色
+			painter.drawEllipse(point, 4, 4);
+
+			// 连接行
+			if (col < 3) {
+				int nextIdx = row * 4 + col + 1;
+				QPointF nextPoint = (projected[nextIdx] - QPointF(minX, minY)) * scaleFactor;
+				nextPoint = QPointF(nextPoint.x(), size.height() - nextPoint.y());
+				nextPoint += centerOffset - QPointF((rangeX * scaleFactor) / 2, (rangeY * scaleFactor) / 2);
+
+				// 根据深度设置线宽（模拟3D效果）
+				float depthFactor = 1.0 - qMin(points[idx][2] / 500000.0f, 1.0f);
+				painter.setPen(QPen(QColor(65, 105, 225), 1.0 + depthFactor * 2.0));
+
+				painter.drawLine(point, nextPoint);
+			}
+
+			// 连接列
+			if (row < 3) {
+				int nextIdx = (row + 1) * 4 + col;
+				QPointF nextPoint = (projected[nextIdx] - QPointF(minX, minY)) * scaleFactor;
+				nextPoint = QPointF(nextPoint.x(), size.height() - nextPoint.y());
+				nextPoint += centerOffset - QPointF((rangeX * scaleFactor) / 2, (rangeY * scaleFactor) / 2);
+
+				// 根据深度设置线宽
+				float depthFactor = 1.0 - qMin(points[idx][2] / 500000.0f, 1.0f);
+				painter.setPen(QPen(QColor(65, 105, 225), 1.0 + depthFactor * 1.5));
+
+				painter.drawLine(point, nextPoint);
+			}
+		}
+	}
+
+	painter.end();
+	cameraDisplay->setPixmap(pixmap);
+}
 
 void MainWindow::createPages() {
 	pageContainer = new QStackedWidget();
@@ -325,7 +448,7 @@ void MainWindow::setupCamera() {
 
 		if (!videoCapture.isOpened()) {
 			qDebug() << "Camera not turned on";
-			cameraDisplay->setText("Camera not available");
+			//cameraDisplay->setText("Camera not available");
 
 			return;
 		}
@@ -337,7 +460,7 @@ void MainWindow::setupCamera() {
 	}
 	catch (const std::exception& e) {
 		qDebug() << "Camera initialization error：" << e.what();
-		cameraDisplay->setText("Camera error");
+		//cameraDisplay->setText("Camera error");
 	}
 }
 
@@ -353,9 +476,9 @@ void MainWindow::updateCameraFrame() {
 	
 		// 显示原始图像
 		//显示到控件时使用实际大小
-		cameraDisplay->setPixmap(
-			QPixmap::fromImage(origImg)
-		);
+		//cameraDisplay->setPixmap(
+		//	QPixmap::fromImage(origImg)
+		//);
 
 		// 边缘检测 
 		cv::Mat edges = detectEdges(frame);
@@ -557,115 +680,6 @@ void MainWindow::updateCameraFrame() {
 		// 更新前一帧图像
 		prevGray = gray.clone();
 
-		//// 静态变量保持跟踪状态
-		//static std::vector<cv::Point2f> trackedPoints;
-		//static cv::Mat prevGray;
-		//
-
-		// //初始检测或当点过少时重新检测
-		//if (trackedPoints.empty() || trackedPoints.size() < 5)	//5个好像有点太少了
-		//{
-
-		//	trackedPoints.clear();
-		//	
-		//	//替换角点检测
-		//	//计算指定方向的梯度 X方向表示垂直边缘
-		//	cv::Mat gradX;
-		//	cv::Sobel(gray, gradX, CV_32F, 1, 0);	//dx=1,dy=0 表检测垂直边缘
-
-		//	//梯度图二值化
-		//	cv::Mat absGrad, gradThresh;	//存储梯度绝对值图像和二值化后的梯度图像
-		//	absGrad = cv::abs(gradX);
-		//	double minVal, maxVal;
-		//	cv::minMaxLoc(absGrad, &minVal, &maxVal);	//将absGrad中的像素值范围[a,b]通过指针传递给min&maxVal
-		//	cv::threshold(absGrad, gradThresh, maxVal * 0.1, 255, cv::THRESH_BINARY);	// 10%最大梯度阈值
-		//	gradThresh.convertTo(gradThresh, CV_8U);
-
-		//	//垂直方向上的非极大值抑制
-		//	cv::Mat nmsEdges = cv::Mat::zeros(gray.size(), CV_8U);
-		//	for (int y = 1; y < gradThresh.rows - 1; y++) {
-		//		for (int x = 1; x < gradThresh.cols - 1; x++) {
-		//			if (gradThresh.at<uchar>(y, x) > 0) {
-		//				// 垂直边缘：比较上下像素（梯度方向）
-		//				if (gradThresh.at<uchar>(y, x) > 0) {
-		//					if (gradX.at<float>(y, x) >= gradX.at<float>(y - 1, x) &&
-		//						gradX.at<float>(y, x) >= gradX.at<float>(y + 1, x)
-		//						) {
-		//						nmsEdges.at<uchar>(y, x) = 255;
-		//					}
-		//				}
-		//			}
-		//		}
-		//	}
-		//	//特征点提取
-		//	std::vector<std::vector<cv::Point>> contours;
-		//	cv::findContours(nmsEdges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-		//	//沿边缘采样点 每n个像素取一个点
-		//	const int samplingInterval = 10;  // 采样间隔
-		//	for (const auto& contour : contours) {
-		//		for (int i = 0; i < contour.size(); i += samplingInterval) {
-		//			if (trackedPoints.size() >= 100) break;  // 限制点数
-		//			trackedPoints.emplace_back(contour[i].x, contour[i].y);
-		//		}
-		//	}
-
-
-		//	//使用角点检测（比轮廓更适合跟踪）
-		//	//cv::goodFeaturesToTrack(
-		//	//	gray,               // 输入灰度图
-		//	//	trackedPoints,      // 输出角点
-		//	//	100,                // 最大角点数
-		//	//	0.01,               // 质量等级
-		//	//	10,                 // 最小间距
-		//	//	cv::Mat(),          // 掩模
-		//	//	3,                  // 邻域尺寸
-		//	//	false,              // 不使用Harris
-		//	//	0.04                // Harris参数
-		//	//);
-		//}
-		//// 后续帧进行光流跟踪
-		//else if (!prevGray.empty()) {
-		//	std::vector<cv::Point2f> newPoints;
-		//	std::vector<uchar> status;
-		//	std::vector<float> err;
-
-		//	// LK光流法跟踪
-		//	cv::calcOpticalFlowPyrLK(
-		//		prevGray, gray,
-		//		trackedPoints, newPoints,
-		//		status, err,
-		//		cv::Size(21, 21),   // 搜索窗口
-		//		3                   // 金字塔层数
-		//	);
-
-		//	// 更新有效跟踪点
-		//	std::vector<cv::Point2f> goodPoints;
-		//	for (size_t i = 0; i < trackedPoints.size(); i++) {
-		//		if (status[i]) {
-		//			goodPoints.push_back(newPoints[i]);
-		//			// 跟踪点
-		//			cv::circle(result, newPoints[i], 5, cv::Scalar(0, 255, 0), -1);
-		//		}
-		//	}
-
-		//	//std::cout << "Tracked Points:" << std::endl;
-		//	//for (const auto& point : trackedPoints) {
-		//	//	std::cout << "(" << point.x << ", " << point.y << ")" << std::endl;
-		//	//}
-		//	// vector中是一堆二维像素坐标，可以迁移到模型中0704-25
-		//	// 可以使用处理静态图像的方法，划定一个像素区域来去除图像边缘地区的杂点
-		//	// 但是在血管模型中怎么跟踪还需要检验，想法是保留动态变化的点，
-		//	// 具体实现要等血管模型来了之后检验
-		//	//Tracked Points :
-		//	//(719, 531)
-		//	//	(750, 515)
-		//	//	(751, 546)
-		//	//	(713, 521)
-		//	//	(780, 500)
-
-		////}
-		//prevGray = gray.clone();
 
 
 		QImage resultImg = cvMatToQImage(result);

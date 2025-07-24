@@ -74,6 +74,8 @@ private:
     QImage cvMatToQImage(const cv::Mat& inMat);
     cv::Mat detectEdges(const cv::Mat& input);
 
+    void updatePointCloudView();
+    QPointF projectPoint(float x, float y, float z);
 
 
 };
